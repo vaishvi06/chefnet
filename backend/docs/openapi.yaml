@@ -1,0 +1,383 @@
+openapi: 3.0.3
+info:
+  title: ChiefNet Hyperlocal Homemade-Food Platform API
+  description: >
+    Complete REST API for ChiefNet: A hyperlocal homemade-food subscription platform.
+    Customers subscribe to verified Home Chefs within a 1 km radius and collect meals by self-pickup.
+    Payment is handled offline directly between customer and chef.
+  version: 1.0.0
+servers:
+  - url: http://localhost:5000/api/v1
+    description: Local Development Server
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: refreshToken
+
+  schemas:
+    StandardResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: Operation completed successfully
+        data:
+          type: object
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+          example: Error message description
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+
+paths:
+  /auth/register:
+    post:
+      summary: Register a new Customer or Chef account
+      tags: [Authentication]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password, role]
+              properties:
+                name:
+                  type: string
+                  example: Priya Sharma
+                email:
+                  type: string
+                  example: priya@example.com
+                password:
+                  type: string
+                  example: Password123
+                role:
+                  type: string
+                  enum: [customer, chef]
+                  example: customer
+                phone:
+                  type: string
+                  example: "+919876543210"
+                address:
+                  type: string
+                  example: Flat 402, Green Glen Layout, Bellandur
+                kitchenName:
+                  type: string
+                  example: Priya's Ghar Ka Khana
+      responses:
+        201:
+          description: User registered successfully
+        400:
+          description: Validation error
+        409:
+          description: Duplicate email
+
+  /auth/login:
+    post:
+      summary: Login with email and password
+      tags: [Authentication]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  example: priya@example.com
+                password:
+                  type: string
+                  example: Password123
+      responses:
+        200:
+          description: Logged in successfully with JWT accessToken returned
+        401:
+          description: Invalid email or password
+        403:
+          description: Account locked or suspended
+
+  /auth/refresh:
+    post:
+      summary: Refresh JWT access token with token rotation
+      tags: [Authentication]
+      responses:
+        200:
+          description: New access token generated
+        401:
+          description: Invalid or expired refresh token
+
+  /auth/logout:
+    post:
+      summary: Logout user and invalidate refresh session
+      tags: [Authentication]
+      responses:
+        200:
+          description: Logged out successfully
+
+  /auth/verify-email/{token}:
+    get:
+      summary: Verify email address with 24h token
+      tags: [Authentication]
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Email verified successfully
+        400:
+          description: Invalid or expired token
+
+  /auth/me:
+    get:
+      summary: Get currently logged-in user profile
+      tags: [Authentication]
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: Current user profile
+
+  /users/me/location:
+    post:
+      summary: Verify GPS coordinates and associate Area
+      tags: [Users]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [latitude, longitude]
+              properties:
+                latitude:
+                  type: number
+                  example: 12.9279
+                longitude:
+                  type: number
+                  example: 77.6741
+      responses:
+        200:
+          description: Location verified and area activation checked
+
+  /discovery/chefs:
+    get:
+      summary: Discover approved Home Chefs within 1 km radius
+      tags: [Discovery]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: lat
+          in: query
+          schema:
+            type: number
+        - name: lng
+          in: query
+          schema:
+            type: number
+        - name: category
+          in: query
+          schema:
+            type: string
+            enum: [gujarati, punjabi, south_indian, jain, healthy_diet, student_budget]
+        - name: vegOnly
+          in: query
+          schema:
+            type: boolean
+        - name: jainOnly
+          in: query
+          schema:
+            type: boolean
+        - name: minRating
+          in: query
+          schema:
+            type: number
+        - name: sortBy
+          in: query
+          schema:
+            type: string
+            enum: [distance, rating]
+      responses:
+        200:
+          description: List of verified home chefs within 1 km
+
+  /subscriptions:
+    post:
+      summary: Request a subscription with a home chef within 1 km
+      tags: [Subscriptions]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [chefId, planType, mealPlan]
+              properties:
+                chefId:
+                  type: string
+                planType:
+                  type: string
+                  enum: [weekly, monthly]
+                mealPlan:
+                  type: string
+                  enum: [breakfast, lunch, dinner, full_day]
+      responses:
+        201:
+          description: Subscription request submitted (status pending)
+
+    get:
+      summary: Get role-aware subscriptions
+      tags: [Subscriptions]
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: List of subscriptions
+
+  /subscriptions/{id}/accept:
+    patch:
+      summary: Chef accepts subscription request (capacity check & transaction)
+      tags: [Subscriptions]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Subscription accepted and activated
+
+  /reservations:
+    post:
+      summary: Reserve a meal under an active subscription before cutoff time
+      tags: [Reservations]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subscriptionId, dailyMenuId, mealId, reserveDate, mealType]
+              properties:
+                subscriptionId:
+                  type: string
+                dailyMenuId:
+                  type: string
+                mealId:
+                  type: string
+                reserveDate:
+                  type: string
+                  format: date
+                mealType:
+                  type: string
+                  enum: [breakfast, lunch, dinner]
+      responses:
+        201:
+          description: Meal reserved, quantity decremented, QR token returned
+
+  /reservations/{id}/qr:
+    get:
+      summary: Get QR Code PNG Base64 data URL for pickup
+      tags: [Reservations]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: QR code data URL returned
+
+  /reservations/verify-qr:
+    post:
+      summary: Chef scans customer QR code to complete pickup
+      tags: [Reservations]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [qrToken]
+              properties:
+                qrToken:
+                  type: string
+      responses:
+        200:
+          description: QR verified, meal marked picked_up
+
+  /reviews:
+    post:
+      summary: Submit a review for a completed reservation
+      tags: [Reviews]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reservationId, ratings]
+              properties:
+                reservationId:
+                  type: string
+                ratings:
+                  type: object
+                comment:
+                  type: string
+      responses:
+        201:
+          description: Review created and rating aggregates updated
+
+  /admin/analytics:
+    get:
+      summary: Comprehensive platform admin analytics
+      tags: [Admin]
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: Platform analytics metrics returned
